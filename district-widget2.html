@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Find Your Congressional District & Representative</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#f5f6f7; padding:2rem; }
+  .widget { background:#fff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.1);
+            max-width:480px; margin:auto; padding:1.5rem; }
+  h2 { margin-top:0; }
+  input[type=text] { width:100%; padding:.6rem .8rem; border:1px solid #ccc; border-radius:6px; font-size:1rem; }
+  button { margin-top:.8rem; padding:.6rem 1.2rem; border:none; background:#0078d7; color:#fff;
+           border-radius:6px; font-size:1rem; cursor:pointer; }
+  button:hover { background:#005fa3; }
+  .result { margin-top:1rem; font-size:1rem; line-height:1.5; }
+  .loading { color:#777; }
+  .error { color:#c00; }
+  .rep-card { background:#f0f3f8; padding:.8rem; border-radius:8px; margin-top:.5rem; }
+</style>
+
+<!-- ✅ Load Google Maps JavaScript with Places Library -->
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY_HERE&libraries=places"></script>
+</head>
+<body>
+
+<div class="widget">
+  <h2>Find Your Congressional District & Representative</h2>
+  <input id="address" type="text" placeholder="Enter your full street address">
+  <button id="lookup">Lookup</button>
+  <div id="output" class="result"></div>
+</div>
+
+<script>
+// === Civic API Key (same as Places API key if enabled together) ===
+const GOOGLE_API_KEY = "YOUR_API_KEY_HERE";
+
+// ✅ Initialize Google Places Autocomplete
+function initAutocomplete() {
+  const input = document.getElementById("address");
+  const autocomplete = new google.maps.places.Autocomplete(input, {
+    types: ["address"],
+    componentRestrictions: { country: "us" }
+  });
+}
+window.addEventListener("load", initAutocomplete);
+
+// ✅ Lookup district and representative using Civic API
+async function getDistrictAndRepresentative(address) {
+  const base = "https://www.googleapis.com/civicinfo/v2/representatives";
+  const params = new URLSearchParams({ address, key: GOOGLE_API_KEY });
+
+  try {
+    const res = await fetch(`${base}?${params}`);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Google Civic API error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    console.log("Civic API response:", data);
+
+    const offices = data.offices || [];
+    const officials = data.officials || [];
+
+    const houseOffice = offices.find(o => o.name.includes("United States House"));
+    if (!houseOffice || !houseOffice.officialIndices?.length) {
+      return { district: null, representative: null };
+    }
+
+    const rep = officials[houseOffice.officialIndices[0]];
+    const divisionId = houseOffice.divisionId || "";
+    const districtMatch = divisionId.match(/cd:(\d+)/);
+    const districtNumber = districtMatch ? districtMatch[1] : "(unknown)";
+
+    return {
+      district: {
+        name: houseOffice.name,
+        number: districtNumber
+      },
+      representative: {
+        name: rep.name,
+        party: rep.party,
+        phones: rep.phones,
+        urls: rep.urls
+      }
+    };
+  } catch (err) {
+    console.error("Fetch error:", err);
+    throw err;
+  }
+}
+
+// ✅ Handle lookup button click
+async function lookup() {
+  const address = document.getElementById("address").value.trim();
+  const output = document.getElementById("output");
+  if (!address) return (output.textContent = "Please enter an address.");
+
+  output.className = "result loading";
+  output.textContent = "Looking up your district and representative...";
+
+  try {
+    const result = await getDistrictAndRepresentative(address);
+    const { district, representative } = result;
+
+    if (!district) throw new Error("No congressional district found for that address.");
+
+    let html = `<strong>${district.name}</strong><br>District #: ${district.number}`;
+
+    if (representative) {
+      html += `
+        <div class="rep-card">
+          <strong>${representative.name}</strong><br>
+          Party: ${representative.party}<br>
+          ${representative.phones ? "📞 " + representative.phones[0] + "<br>" : ""}
+          ${representative.urls ? `🌐 <a href="${representative.urls[0]}" target="_blank">${representative.urls[0]}</a>` : ""}
+        </div>`;
+    } else {
+      html += `<div class="rep-card">No representative info found.</div>`;
+    }
+
+    output.className = "result";
+    output.innerHTML = html;
+  } catch (e) {
+    output.className = "result error";
+    output.textContent = "Error: " + e.message;
+  }
+}
+
+document.getElementById("lookup").addEventListener("click", lookup);
+document.getElementById("address").addEventListener("keypress", e => {
+  if (e.key === "Enter") lookup();
+});
+</script>
+
+</body>
+</html>
